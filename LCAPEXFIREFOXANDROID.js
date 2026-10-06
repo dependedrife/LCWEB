@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         Lightcord Pro (Apex Edition - Mobile Firefox)
+// @name         Lightcord Pro (Apex Edition - Firefox Android Fixed)
 // @namespace    http://tampermonkey.net/
-// @version      3.2
-// @description  Filterless ultra-raw stereo Opus pipeline for Discord, precision zero-phase delay, 10-band EQ, pro compressor suite, 100x gain multiplier, and collapsible start-minimized UI.
-// @author       Skenzo discord.gg/lightcord (Apex Upgraded / Mobile Firefox)
+// @version      3.3
+// @description  Filterless ultra-raw stereo Opus pipeline for Discord, precision zero-phase delay, 10-band EQ, pro compressor suite, 100x gain multiplier, and guaranteed mobile Firefox UI injection.
+// @author       Skenzo discord.gg/lightcord (Apex Upgraded / Mobile Firefox Fixed)
 // @match        *://*.discord.com/*
-// @run-at       document-start
+// @run-at       document-end
 // @grant        none
 // ==/UserScript==
 
@@ -611,7 +611,7 @@ class AudioCtxLayer {
 [BitrateLayer, MicLayer, TrackLayer, AudioPipelineLayer, LocalAudioLayer, RTCLayer, WorkletLayer, AudioCtxLayer]
   .forEach(m => m.install());
 
-// ── Floating Control Panel (Apex Edition - Minimized on Start) ─────────────────
+// ── Floating Control Panel (Apex Edition - Minimized on Start / Mobile Guaranteed) ─────────────────
 const UI = new class {
   #el       = null;
   #dragging = false;
@@ -621,6 +621,8 @@ const UI = new class {
   #minimized = true;
 
   build() {
+    if (document.getElementById('dsm-panel')) return; // Prevent duplicate injection
+
     const s = document.createElement('style');
     s.textContent = `
       #dsm-panel{position:fixed;top:60px;right:16px;z-index:2147483647;width:320px;
@@ -682,7 +684,7 @@ const UI = new class {
     p.className = 'minimized';
     p.innerHTML = `
       <h2>
-        <span>Lightcord Apex <span class="badge">Mobile Firefox</span></span>
+        <span>Lightcord Apex <span class="badge">Android FF</span></span>
         <div class="header-right">
           <button class="min-btn" id="dsm-min-toggle" title="Maximize/Minimize">+</button>
         </div>
@@ -767,7 +769,10 @@ const UI = new class {
         </section>
       </div>
     `;
-    document.body.appendChild(p);
+    
+    const targetContainer = document.body || document.documentElement;
+    targetContainer.appendChild(p);
+    
     this.#el = p;
     this.#drag(p.querySelector('h2'));
     this.#bindMinimize();
@@ -794,6 +799,24 @@ const UI = new class {
   }
 
   #drag(handle) {
+    let startX = 0, startY = 0;
+    handle.addEventListener('touchstart', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      this.#dragging = true;
+      const r = this.#el.getBoundingClientRect();
+      startX = e.touches[0].clientX - r.left;
+      startY = e.touches[0].clientY - r.top;
+    }, {passive: true});
+
+    document.addEventListener('touchmove', e => {
+      if (!this.#dragging) return;
+      this.#el.style.right = 'auto';
+      this.#el.style.left  = (e.touches[0].clientX - startX) + 'px';
+      this.#el.style.top   = (e.touches[0].clientY - startY) + 'px';
+    }, {passive: true});
+
+    document.addEventListener('touchend', () => { this.#dragging = false; });
+
     handle.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON') return;
       this.#dragging = true;
@@ -1099,7 +1122,12 @@ const UI = new class {
   }
 };
 
-if (document.body) UI.build();
-else document.addEventListener('DOMContentLoaded', () => UI.build());
+// Guarantee UI boot on mobile Firefox execution states
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  UI.build();
+} else {
+  window.addEventListener('DOMContentLoaded', () => UI.build());
+  window.addEventListener('load', () => UI.build());
+}
 
 })();
