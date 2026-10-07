@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lightcord Pro (Apex Edition - Stable Lifeline)
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.8
 // @description  Filterless ultra-raw stereo Opus pipeline with forced CBR, persistent WebRTC stream lifelines, zero-phase delay, 10-band EQ, pro compressor suite, and drop-proof mute handling.
 // @author       Skenzo discord.gg/lightcord (Apex Upgraded & Stable Lifeline)
 // @match        *://*.discord.com/*
@@ -231,7 +231,7 @@ class MicLayer {
           State.setRaw(t);
           TrackLayer.purify(t);
           const ctx = AudioPipelineLayer.getContext();
-          if (ctx.state === 'suspended') ctx.resume();
+          if (ctx && ctx.state === 'suspended') ctx.resume();
           const src = ctx.createMediaStreamSource(new MediaStream([t]));
           AudioPipelineLayer.connectMicSource(src);
         }
@@ -265,7 +265,7 @@ class AudioPipelineLayer {
 
   static #applyStereoDelay() {
     const { delayL, delayR, crossFeed } = AudioPipelineLayer.#nodes;
-    if (!delayL || !delayR) return;
+    if (!delayL || !delayR || !AudioPipelineLayer.#ctx) return;
     const [dL, dR] = AudioPipelineLayer.#knobToSeconds(
       AudioPipelineLayer.#leftMs,
       AudioPipelineLayer.#rightMs
@@ -282,7 +282,7 @@ class AudioPipelineLayer {
   }
 
   static #boot() {
-    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: 'interactive' });
     AudioPipelineLayer.#ctx = ctx;
 
     const masterGain = ctx.createGain();
@@ -588,7 +588,7 @@ class RTCLayer {
 
 class WorkletLayer {
   static install() {
-    const proto = AudioWorklet?.prototype;
+    const proto = typeof AudioWorklet !== 'undefined' ? AudioWorklet?.prototype : null;
     if (!proto?.addModule) return;
     Interceptor.async_(proto, 'addModule', (o, url, ...rest) => {
       const u = String(url);
@@ -619,7 +619,26 @@ class AudioCtxLayer {
   }
 }
 
-[BitrateLayer, MicLayer, TrackLayer, AudioPipelineLayer, LocalAudioLayer, RTCLayer, WorkletLayer, AudioCtxLayer]
+class StreamBugFixLayer {
+  static install() {
+    const origCreateElement = document.createElement;
+    document.createElement = function(tagName, options) {
+      const el = origCreateElement.call(document, tagName, options);
+      if (tagName && tagName.toLowerCase() === 'audio') {
+        el.addEventListener('play', () => {
+          try {
+            const ctx = AudioPipelineLayer.getContext();
+            if (ctx && ctx.state === 'suspended') ctx.resume();
+          } catch(_) {}
+        }, { passive: true });
+      }
+      return el;
+    };
+    document.createElement.toString = () => origCreateElement.toString();
+  }
+}
+
+[BitrateLayer, MicLayer, TrackLayer, AudioPipelineLayer, LocalAudioLayer, RTCLayer, WorkletLayer, AudioCtxLayer, StreamBugFixLayer]
   .forEach(m => m.install());
 
 // ── Floating Control Panel (Apex Edition - Stable Lifeline) ─────────────────
@@ -924,7 +943,7 @@ const UI = new class {
 
     pick.addEventListener('click', () => {
       const ctx = AudioPipelineLayer.getContext();
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx && ctx.state === 'suspended') ctx.resume();
       file.click();
     });
     file.addEventListener('change', () => {
@@ -938,7 +957,7 @@ const UI = new class {
 
     playB.addEventListener('click',  () => {
       const ctx = AudioPipelineLayer.getContext();
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx && ctx.state === 'suspended') ctx.resume();
       LocalAudioLayer.play();
       playB.classList.add('active');
     });
@@ -1111,6 +1130,6 @@ const UI = new class {
 };
 
 if (document.body) UI.build();
-else document.addEventListener('DOMContentLoaded', () => UI.export ? null : UI.build());
+else document.addEventListener('DOMContentLoaded', () => UI.build());
 
 })();
