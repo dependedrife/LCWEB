@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Lightcord Pro (Apex Edition - Switch Fix)
+// @name         Lightcord Pro (Apex Edition - Stable Lifeline)
 // @namespace    http://tampermonkey.net/
-// @version      3.3
-// @description  Filterless ultra-raw stereo Opus pipeline with intelligent peer connection recycling, zero-phase delay, 10-band EQ, pro compressor suite, and collapsible start-minimized UI.
-// @author       Skenzo discord.gg/lightcord (Apex Upgraded & Switch-Fix)
+// @version      3.6
+// @description  Filterless ultra-raw stereo Opus pipeline with forced CBR, persistent WebRTC stream lifelines, zero-phase delay, 10-band EQ, pro compressor suite, and drop-proof mute handling.
+// @author       Skenzo discord.gg/lightcord (Apex Upgraded & Stable Lifeline)
 // @match        *://*.discord.com/*
 // @run-at       document-start
 // @grant        none
@@ -24,6 +24,7 @@ const CFG = Object.freeze({
   opus: Object.freeze({
     stereo:            '1',
     'sprop-stereo':    '1',
+    cbr:               '1',
     maxaveragebitrate: '384000',
     maxplaybackrate:   '48000',
     usedtx:            '0',
@@ -92,8 +93,6 @@ class SDPEditor {
     const match = re.exec(sdp);
     if (!match) return sdp;
     const remote = SDPEditor.#decode(match[1]);
-    delete remote.cbr;
-    delete remote.usedtx;
     const merged = { ...remote, ...CFG.opus };
     return sdp.replace(match[0], `a=fmtp:${pt} ${SDPEditor.#encode(merged)}`);
   }
@@ -135,21 +134,22 @@ class BitrateLayer {
     } catch (_) {}
   }
 
+  static nukeAll() {
+    for (const pc of BitrateLayer.#pcs) {
+      try {
+        pc.getSenders().forEach(s => { try { s.replaceTrack(null); } catch(_){} });
+        pc.close();
+      } catch (_) {}
+    }
+    BitrateLayer.#pcs.clear();
+  }
+
   static track(pc) {
     BitrateLayer.#pcs.add(pc);
-    
-    // Safety check: close stale connections instantly if a new instance spins up during channel hops
     pc.addEventListener('connectionstatechange', () => {
       if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
         BitrateLayer.#pcs.delete(pc);
       } else if (pc.connectionState === 'connected') {
-        // Close other lingering active connections to prevent DTLS collision locks
-        for (const activePC of BitrateLayer.#pcs) {
-          if (activePC !== pc && activePC.connectionState !== 'closed') {
-            try { activePC.close(); } catch (_) {}
-            BitrateLayer.#pcs.delete(activePC);
-          }
-        }
         pc.getSenders().forEach(s => BitrateLayer.apply(s));
       }
     });
@@ -158,14 +158,7 @@ class BitrateLayer {
   static install() {
     const Orig = RTCPeerConnection;
     const wrapped = function (...args) {
-      // Forcefully clean up any dangling connections prior to instantiating a new channel session
-      for (const pc of BitrateLayer.#pcs) {
-        if (pc.connectionState !== 'closed') {
-          try { pc.close(); } catch (_) {}
-        }
-      }
-      BitrateLayer.#pcs.clear();
-
+      BitrateLayer.nukeAll();
       const pc = new Orig(...args);
       BitrateLayer.track(pc);
       return pc;
@@ -455,7 +448,8 @@ class AudioPipelineLayer {
 
   static muteMic(muted) {
     AudioPipelineLayer.#assertReady();
-    AudioPipelineLayer.#nodes.micMix.gain.value = muted ? 0 : 1;
+    const now = AudioPipelineLayer.#ctx.currentTime;
+    AudioPipelineLayer.#nodes.micMix.gain.setTargetAtTime(muted ? 0 : 1, now, 0.02);
   }
 
   static setMusicVolume(value) {
@@ -628,7 +622,7 @@ class AudioCtxLayer {
 [BitrateLayer, MicLayer, TrackLayer, AudioPipelineLayer, LocalAudioLayer, RTCLayer, WorkletLayer, AudioCtxLayer]
   .forEach(m => m.install());
 
-// ── Floating Control Panel (Apex Edition - Minimized on Start) ─────────────────
+// ── Floating Control Panel (Apex Edition - Stable Lifeline) ─────────────────
 const UI = new class {
   #el       = null;
   #dragging = false;
@@ -699,7 +693,7 @@ const UI = new class {
     p.className = 'minimized';
     p.innerHTML = `
       <h2>
-        <span>Lightcord Apex <span class="badge">Switch-Fix</span></span>
+        <span>Lightcord Apex <span class="badge">Stable Lifeline</span></span>
         <div class="header-right">
           <button class="min-btn" id="dsm-min-toggle" title="Maximize/Minimize">+</button>
         </div>
